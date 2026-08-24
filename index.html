@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>跨链套利 Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --green: #3fb950;
+    --red: #f85149; --blue: #58a6ff; --yellow: #d29922;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 20px; overflow-x: hidden; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .banner { background: rgba(210,153,34,.12); border: 1px solid var(--yellow); color: var(--yellow); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; display: none; }
+  .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; }
+  .stat .label { font-size: 11px; color: var(--muted); }
+  .stat .value { font-size: 20px; font-weight: 600; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  input, select { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; font-size: 13px; }
+  input:focus, select:focus { outline: none; border-color: var(--blue); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 9px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--border); }
+  th { background: #1c2128; color: var(--muted); font-weight: 500; cursor: pointer; user-select: none; }
+  th:hover { color: var(--text); }
+  tr:hover { background: #1c2128; }
+  .sym { font-weight: 600; }
+  .tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+  .tag.mainstream { background: rgba(88,166,255,.15); color: var(--blue); }
+  .tag.alt { background: rgba(139,148,158,.15); color: var(--muted); }
+  .tag.noroute { background: rgba(248,81,73,.15); color: var(--red); }
+  .tag.hasroute { background: rgba(63,185,80,.15); color: var(--green); }
+  .tag.real { background: rgba(210,153,34,.2); color: var(--yellow); }
+  .tag.exec { background: rgba(63,185,80,.2); color: var(--green); font-weight: 600; }
+  .gap { font-weight: 700; }
+  .gap.hot { color: var(--red); }
+  .gap.warm { color: var(--yellow); }
+  .gap.cool { color: var(--green); }
+  .gap.neg { color: var(--muted); }
+  .arrow { color: var(--muted); margin: 0 6px; }
+  .muted { color: var(--muted); }
+  .chain { color: #e6edf3; }
+  .verify { color: var(--blue); text-decoration: none; font-size: 12px; white-space: nowrap; }
+  .verify:hover { text-decoration: underline; }
+  .footer { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  @media (max-width: 768px) {
+    body { padding: 12px; }
+    table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  }
+</style>
+</head>
+<body>
+  <h1>🌉 跨链套利 Dashboard</h1>
+  <div class="sub">数据源：Li.Fi（Jumper 后端）· 65 条 EVM 主网链 · 由 GitHub Actions 定时扫描并核实真实路由</div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">更新时间 (UTC)</div><div class="value" id="st-time" style="font-size:15px">—</div></div>
+    <div class="stat"><div class="label">链数</div><div class="value" id="st-chains">—</div></div>
+    <div class="stat"><div class="label">跨链资产</div><div class="value" id="st-assets">—</div></div>
+    <div class="stat"><div class="label">已核实</div><div class="value" id="st-checked">—</div></div>
+    <div class="stat"><div class="label">可执行</div><div class="value" id="st-exec" style="color:var(--green)">—</div></div>
+  </div>
+
+  <div class="controls">
+    <input id="search" placeholder="搜索币种 (如 USDC / WETH)" style="width:200px">
+    <select id="cat">
+      <option value="all">全部资产</option>
+      <option value="mainstream">仅主流</option>
+      <option value="alt">仅小币</option>
+    </select>
+    <select id="mingap">
+      <option value="0">全部价差</option>
+      <option value="0.5">≥ 0.5%</option>
+      <option value="1" selected>≥ 1%</option>
+      <option value="2">≥ 2%</option>
+      <option value="5">≥ 5%</option>
+    </select>
+    <select id="minchain">
+      <option value="0">全部链数</option>
+      <option value="3">≥ 3 链</option>
+      <option value="5" selected>≥ 5 链</option>
+      <option value="10">≥ 10 链</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="only-exec"> 仅可执行
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="hide-noroute"> 隐藏无路由
+    </label>
+    <span class="muted" id="status"></span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th onclick="sortBy('symbol')">资产 ↕</th>
+        <th onclick="sortBy('low_chain')">低价链 → 高价链 ↕</th>
+        <th onclick="sortBy('low_price')">低价 ↕</th>
+        <th onclick="sortBy('high_price')">高价 ↕</th>
+        <th onclick="sortBy('gap_pct')">价差 ↕</th>
+        <th onclick="sortBy('n_chains')">链数 ↕</th>
+        <th>核实</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"><tr><td colspan="7" class="muted">加载中…</td></tr></tbody>
+  </table>
+
+  <div class="footer">
+    <b>价差</b> = (高价−低价)/低价，来自 Li.Fi 参考价，<b>会虚高</b>。<br>
+    <b>实际</b>（黄标）= 用 Li.Fi advanced/routes 实际报价算出的<b>有效价差</b>，已含滑点+桥费，这才是能赚到的。<br>
+    <b>可执行</b>（绿标）= 有可用路由 且 有效价差 ≥0.5%（按 $1000 估算）。<br>
+    ⚠️ 所有数据仅供参考，下单前必须在 Jumper 确认实际报价与目标链卖出深度。本页不构成投资建议。
+  </div>
+
+<script>
+let DATA = { results: [] };
+let sortKey = 'gap_pct', sortAsc = false;
+const EXEC_MIN_GAP = 0.5;   // 可执行的有效价差门槛(%)
+
+async function load() {
+  try {
+    // 加 ?t= 防缓存（GitHub Pages 有 CDN 缓存）
+    const r = await fetch('./scan.json?t=' + Date.now());
+    DATA = await r.json();
+    render();
+  } catch (e) {
+    document.getElementById('status').textContent = '加载失败: ' + e.message;
+  }
+}
+
+function fmtPrice(p) {
+  if (p === null || p === undefined) return '-';
+  if (p >= 1000) return p.toLocaleString('en-US', {maximumFractionDigits: 2});
+  if (p >= 1) return p.toFixed(2);
+  if (p >= 0.01) return p.toFixed(4);
+  if (p >= 0.0001) return p.toFixed(6);
+  return p.toExponential(4);
+}
+
+function gapClass(g) {
+  if (g < 0) return 'neg';
+  if (g >= 3) return 'hot';
+  if (g >= 1) return 'warm';
+  return 'cool';
+}
+
+function isExecutable(r) {
+  return r.has_route === true && r.real_gap != null && r.real_gap >= EXEC_MIN_GAP;
+}
+
+function jumperUrl(r) {
+  if (!r.low_chain_id || !r.low_token_address || !r.high_token_address) return '#';
+  const p = new URL('https://jumper.exchange/');
+  p.searchParams.set('fromChain', r.low_chain_id);
+  p.searchParams.set('toChain', r.high_chain_id);
+  p.searchParams.set('fromToken', r.low_token_address);
+  p.searchParams.set('toToken', r.high_token_address);
+  return p.toString();
+}
+
+function acrossUrl(r) {
+  if (!r.low_chain_id || !r.high_chain_id) return '#';
+  const p = new URL('https://app.across.to/');
+  p.searchParams.set('from', r.low_chain_id);
+  p.searchParams.set('to', r.high_chain_id);
+  p.searchParams.set('inputToken', r.symbol);
+  p.searchParams.set('outputToken', r.symbol);
+  return p.toString();
+}
+
+function getFilteredRows() {
+  const search = document.getElementById('search').value.toLowerCase();
+  const cat = document.getElementById('cat').value;
+  const mingap = parseFloat(document.getElementById('mingap').value);
+  const minchain = parseInt(document.getElementById('minchain').value);
+  const onlyExec = document.getElementById('only-exec').checked;
+  const hideNoRoute = document.getElementById('hide-noroute').checked;
+  return (DATA.results || []).filter(r => {
+    if (search && !(r.symbol.toLowerCase().includes(search) || (r.name||'').toLowerCase().includes(search))) return false;
+    if (cat === 'mainstream' && !r.is_mainstream) return false;
+    if (cat === 'alt' && r.is_mainstream) return false;
+    if (r.gap_pct < mingap) return false;
+    if (r.n_chains < minchain) return false;
+    if (onlyExec && !isExecutable(r)) return false;
+    if (hideNoRoute && r.has_route === false) return false;
+    return true;
+  });
+}
+
+function makeRow(r) {
+  const hasReal = r.has_route === true && r.real_gap != null;
+  const gap = hasReal ? r.real_gap : r.gap_pct;
+  let gapTxt;
+  if (hasReal) {
+    gapTxt = `${gap.toFixed(2)}% <span class="tag real">实际</span>`;
+    if (r.slippage != null && Math.abs(r.slippage) >= 0.01) {
+      gapTxt += `<div class="muted" style="font-size:11px">滑点 −${Math.abs(r.slippage).toFixed(2)}% · 毛 ${r.gap_pct.toFixed(2)}%</div>`;
+    }
+    if (gap < EXEC_MIN_GAP) gapTxt += ' <span class="tag noroute">流动性不足</span>';
+  } else {
+    gapTxt = `${gap.toFixed(2)}%`;
+  }
+  let routeTag = '';
+  if (isExecutable(r)) routeTag = '<span class="tag exec">可执行</span>';
+  else if (r.has_route === false) routeTag = '<span class="tag noroute">无路由</span>';
+  else if (r.has_route === true) routeTag = '<span class="tag hasroute">有路由</span>';
+
+  return `<tr>
+      <td><span class="sym">${r.symbol}</span>${r.is_mainstream ? '<span class="tag mainstream">主流</span>' : '<span class="tag alt">小币</span>'}<div class="muted" style="font-size:11px">${r.name || ''}</div></td>
+      <td><span class="chain">${r.low_chain}</span><span class="arrow">→</span><span class="chain">${r.high_chain}</span></td>
+      <td class="muted">${fmtPrice(r.low_price)}</td>
+      <td class="muted">${fmtPrice(r.high_price)}</td>
+      <td class="gap ${gapClass(gap)}">${gapTxt}</td>
+      <td class="muted">${r.n_chains}</td>
+      <td>
+        <a class="verify" href="${jumperUrl(r)}" target="_blank" rel="noopener">Jumper</a>
+        <a class="verify" href="${acrossUrl(r)}" target="_blank" rel="noopener">Across</a>
+        ${routeTag}
+      </td>
+    </tr>`;
+}
+
+function render() {
+  document.getElementById('st-time').textContent = DATA.timestamp_str || '—';
+  document.getElementById('st-chains').textContent = DATA.n_chains ?? '—';
+  document.getElementById('st-assets').textContent = DATA.n_assets ?? '—';
+  document.getElementById('st-checked').textContent = DATA.n_checked ?? '—';
+  const all = DATA.results || [];
+  document.getElementById('st-exec').textContent = all.filter(isExecutable).length;
+
+  const banner = document.getElementById('banner');
+  if (DATA.rate_limited) {
+    banner.style.display = 'block';
+    banner.innerHTML = '⚠️ 上次扫描时 Li.Fi 接口限流，部分机会未能核实真实路由/滑点 —— 未核实的行只有参考价差，不代表没有机会。';
+  } else {
+    banner.style.display = 'none';
+  }
+
+  let rows = getFilteredRows();
+  rows.sort((a, b) => {
+    let x = a[sortKey], y = b[sortKey];
+    if (typeof x === 'string') return sortAsc ? x.localeCompare(y) : y.localeCompare(x);
+    return sortAsc ? x - y : y - x;
+  });
+
+  const tb = document.getElementById('tbody');
+  tb.innerHTML = rows.length === 0
+    ? '<tr><td colspan="7" class="muted">无匹配结果</td></tr>'
+    : rows.map(makeRow).join('');
+  document.getElementById('status').textContent = `显示 ${rows.length} / ${all.length}`;
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortAsc = !sortAsc;
+  else { sortKey = key; sortAsc = false; }
+  render();
+}
+
+['search','cat','mingap','minchain','only-exec','hide-noroute'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', render);
+  if (el.tagName === 'SELECT') el.addEventListener('change', render);
+});
+
+load();
+setInterval(load, 5 * 60 * 1000);  // 每 5 分钟重新拉 JSON
+</script>
+</body>
+</html>
